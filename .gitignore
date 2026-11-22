@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+# weights live in persistent storage / the image, never in git
+models/
+*.safetensors
+# generated
+data/
+results/
+output/
+# secrets
+.env
+*.token
+constraints.txt

@@ -1,0 +1,33 @@
+# Assembles the submission image from layers the notebook built and tested (tools/build_image.sh).
+#   gh workflow run assemble -f tag=v1
+# Secrets: GHCR_TOKEN (classic token, read:packages), DOCKERHUB_TOKEN (Docker Hub, Read & Write).
+# Variables: LAYERS_REPO (e.g. ghcr.io/<github-user>/ocr-layers), IMAGE_REPO (e.g. docker.io/<user>/<name>),
+#            DOCKERHUB_USER. Kept out of the code so the image reference is never committed.
+name: assemble
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: tag pushed by build_image.sh
+        required: true
+
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      LAYERS: ${{ vars.LAYERS_REPO }}:${{ inputs.tag }}
+      IMAGE: ${{ vars.IMAGE_REPO }}:${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Free disk (our layers are ~18 GB compressed; the base is never downloaded)
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
+      - name: Install crane and log in
+        env:
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          curl -sL https://github.com/google/go-containerregistry/releases/download/v0.22.1/go-containerregistry_Linux_x86_64.tar.gz | sudo tar -xz -C /usr/local/bin crane
+          echo "$GHCR_TOKEN" | crane auth login ghcr.io -u ${{ github.repository_owner }} --password-stdin
+          echo "$DOCKERHUB_TOKEN" | crane auth login index.docker.io -u ${{ vars.DOCKERHUB_USER }} --password-stdin
+      - run: tools/assemble.sh

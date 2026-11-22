@@ -1,0 +1,29 @@
+# Exact uncompressed size of the pushed image (the graders' 60 GiB gate), pulled anonymously like the graders.
+# Streams every layer through gunzip | wc -c, so no disk is needed.
+#   gh workflow run size -f tag=v1
+name: size
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: image tag to measure
+        required: true
+
+jobs:
+  size:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      IMAGE: ${{ vars.IMAGE_REPO }}:${{ inputs.tag }}
+    steps:
+      - name: Install crane
+        run: curl -sL https://github.com/google/go-containerregistry/releases/download/v0.22.1/go-containerregistry_Linux_x86_64.tar.gz | sudo tar -xz -C /usr/local/bin crane
+      - name: Measure every layer uncompressed
+        run: |
+          crane manifest "$IMAGE" | python3 -c "import json,sys; [print(l['digest']) for l in json.load(sys.stdin)['layers']]" > digests
+          # pipefail: a failed download must fail the job, not count as 0 bytes
+          xargs -P4 -I{} bash -c 'set -o pipefail; n=$(crane blob "${IMAGE%:*}@{}" | gunzip -c | wc -c) && echo "$n {}"' < digests | tee sizes
+          [ "$(wc -l < sizes)" -eq "$(wc -l < digests)" ] || { echo "some layers were not measured"; exit 1; }
+          total=$(awk '{s+=$1} END{print s}' sizes)
+          echo "uncompressed total: $(awk "BEGIN{printf \"%.2f\", $total/2^30}") GiB (limit 60 GiB)"
+          [ "$total" -lt $((60 * 2**30)) ] || { echo "OVER THE 60 GiB LIMIT"; exit 1; }
